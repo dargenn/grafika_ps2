@@ -5,8 +5,10 @@ import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.scene.Node;
 import javafx.scene.Scene;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.Slider;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.stage.FileChooser;
@@ -18,6 +20,7 @@ import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageOutputStream;
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.awt.image.WritableRaster;
 import java.io.*;
 import java.util.Iterator;
 
@@ -28,6 +31,9 @@ public class Controller {
     public Label fileNameLabel;
     @FXML
     public ImageView imageViewContainer;
+    @FXML
+    public Slider slider;
+
 
     private File selectedFile = null;
 
@@ -54,7 +60,9 @@ public class Controller {
         InputStream inputStream = new FileInputStream(selectedFile);
         OutputStream outputStream = new FileOutputStream(compressedImageFile);
 
-        float quality = 0.1f;
+        float quality = (float) slider.getValue() / 100;
+        System.out.println("quality: " + quality);
+
         BufferedImage image = ImageIO.read(inputStream);
         Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpg");
         ImageWriter writer = writers.next();
@@ -69,16 +77,28 @@ public class Controller {
         outputStream.close();
     }
 
-    public void displayPPM(File file) throws IOException {
-        switch (getPpmFileType(file)) {
-            case P3:
-                displayP3(file);
-                break;
-            case P6:
-                displayP6(file);
-                break;
-            default:
-                break;
+    private void displayPPM(File file) {
+        try {
+            switch (getPpmFileType(file)) {
+                case P3:
+                    displayP3(file);
+                    break;
+                case P6:
+                    displayP6(file);
+                    break;
+                default:
+                    new Alert(Alert.AlertType.ERROR, "Wrong file format").show();
+                    break;
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            new Alert(Alert.AlertType.ERROR, "Error in file").show();
+        } catch (NumberFormatException e) {
+            e.printStackTrace();
+            new Alert(Alert.AlertType.ERROR, "Wrong number format").show();
+        } catch (Exception e) {
+            e.printStackTrace();
+            new Alert(Alert.AlertType.ERROR, "Unrecognized error").show();
         }
     }
 
@@ -101,8 +121,8 @@ public class Controller {
 
             if (line.split(" ").length >= 3) {
                 String currentLine = bufferedReader.readLine();
-                currentLine = currentLine.replaceAll("\\s+"," ");
-                if(currentLine.startsWith(" "))
+                currentLine = currentLine.replaceAll("\\s+", " ");
+                if (currentLine.startsWith(" "))
                     currentLine = currentLine.substring(1);
                 String[] pixels = currentLine.split(" ");
                 for (int index = 0; index < pixels.length; index += 3) {
@@ -131,13 +151,49 @@ public class Controller {
         BufferedReader bufferedReader = new BufferedReader(new FileReader(file));
         bufferedReader.readLine();
         String line = null;
+        BufferedImage img = null;
+        int width = 0, height = 0, maxValue = 0, r, g, b;
+        byte[] pixels = null;
+        int counter = 0;
+        boolean alreadyVisited = false;
         while ((line = bufferedReader.readLine()) != null) {
-            if (line.startsWith("#"))
+            if (!alreadyVisited) {
+                alreadyVisited = true;
+                String[] dimensions = line.split(" ");
+                width = Integer.valueOf(dimensions[0]);
+                height = Integer.valueOf(dimensions[1]);
+                pixels = new byte[width * height * 3 * 500];
+                maxValue = Integer.valueOf(bufferedReader.readLine());
                 continue;
+            }
+
+            byte[] bytes = line.getBytes();
+            for (int i = 0; i < bytes.length; i += 3) {
+                if (i + 2 >= bytes.length)
+                    break;
+                r = bytes[i] & 0xff;
+                g = bytes[i + 1] & 0xff;
+                b = bytes[i + 2] & 0xff;
+                pixels[counter++] = (byte) r;
+                pixels[counter++] = (byte) g;
+                pixels[counter++] = (byte) b;
+            }
         }
+
+        BufferedImage newImg = new BufferedImage(width, height, BufferedImage.TYPE_3BYTE_BGR);
+        WritableRaster writableRaster = newImg.getRaster();
+        writableRaster.setDataElements(0, 0, width, height, pixels);
+        newImg.setData(writableRaster);
+
+        Graphics2D graphics = newImg.createGraphics();
+
+        graphics.drawImage(newImg, 0, 0, null);
+        graphics.dispose();
+
+        imageViewContainer.setImage(SwingFXUtils.toFXImage(newImg, null));
     }
 
-    public PpmFileType getPpmFileType(File file) throws IOException {
+    private PpmFileType getPpmFileType(File file) throws IOException {
         BufferedReader bufferedReader = new BufferedReader(new FileReader(file));
         String type = bufferedReader.readLine();
         bufferedReader.close();
